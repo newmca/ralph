@@ -32,16 +32,33 @@ Forked from [snarktank/ralph](https://github.com/snarktank/ralph). Based on [Geo
 
 ## Setup
 
-Copy the ralph files into your project:
+### 1. Copy ralph.sh into your project
 
 ```bash
 mkdir -p scripts/ralph
 cp /path/to/ralph/scripts/ralph/ralph.sh scripts/ralph/
-cp /path/to/ralph/scripts/ralph/CLAUDE.md scripts/ralph/
 chmod +x scripts/ralph/ralph.sh
 ```
 
-Install the skills for Claude Code:
+### 2. Set up CLAUDE.md (the agent prompt)
+
+`COPY_INTO_YOUR_PROJECT_CLAUDE.md` is the instruction file that gets piped to each Claude Code instance on every iteration. It tells the agent how to read the PRD, pick a story, implement it, run quality checks, commit, and log progress.
+
+Copy it into `scripts/ralph/` and rename it to `CLAUDE.md`:
+
+```bash
+cp /path/to/ralph/scripts/ralph/COPY_INTO_YOUR_PROJECT_CLAUDE.md scripts/ralph/CLAUDE.md
+```
+
+Then **customize it for your project**. Add:
+- Your quality check commands (e.g., `npm run typecheck && npm run lint && npm run test`)
+- Codebase conventions (e.g., "use server actions, not API routes")
+- Stack-specific gotchas (e.g., "always run `db:push` after schema changes")
+- Any project-specific instructions the agent needs each iteration
+
+`ralph.sh` pipes this file to Claude Code on every iteration, so anything you put here is the agent's primary instruction set.
+
+### 3. Install skills (optional)
 
 ```bash
 cp -r /path/to/ralph/.claude/skills/opsx-to-ralph ~/.claude/skills/
@@ -58,7 +75,7 @@ cp -r /path/to/ralph/.claude/skills/review-tests ~/.claude/skills/
 
 1. **Generate OpenSpec proposal** — creates `tasks.md`, `proposal.md`, `design.md`
 2. **Convert to prd.json** — `/opsx-to-ralph` parses tasks, enriches from design docs, auto-tags, validates, then writes `prd.json`
-3. **Run Ralph** — `./scripts/ralph/ralph.sh` executes stories autonomously
+3. **Run Ralph** — `./scripts/ralph/ralph.sh` pipes `CLAUDE.md` to a fresh Claude Code instance each iteration
 4. **Review tests** — `/review-tests` audits agent-written tests for quality
 
 ### Without OpenSpec
@@ -201,9 +218,9 @@ Read-only analysis of test quality from a git diff. Identifies weak tests that A
 
 **Trigger:** "review tests", "check test quality", "review ralph tests"
 
-## Agent Instructions (CLAUDE.md)
+## Agent Instructions (COPY_INTO_YOUR_PROJECT_CLAUDE.md)
 
-The `scripts/ralph/CLAUDE.md` file is piped to each Claude Code instance. It includes:
+`scripts/ralph/COPY_INTO_YOUR_PROJECT_CLAUDE.md` is the template that you copy into your project as `CLAUDE.md`. It gets piped to each Claude Code instance and includes:
 
 - **10-step process** — read PRD, pick story, implement, test, commit, update, log
 - **Test quality rules** — no vacuous tests, no mock-only tests, negative tests required
@@ -246,7 +263,7 @@ Ralph automatically archives previous runs when `prd.json` content changes (dete
 | File | Purpose |
 |------|---------|
 | `scripts/ralph/ralph.sh` | Enhanced agent loop with fallback, gates, stalemate detection |
-| `scripts/ralph/CLAUDE.md` | Agent instructions with test quality and schema rules |
+| `scripts/ralph/COPY_INTO_YOUR_PROJECT_CLAUDE.md` | Agent instruction template — copy to your project as `CLAUDE.md` and customize |
 | `scripts/ralph/tests/ralph.bats` | BATS unit tests (63 tests) |
 | `.claude/skills/opsx-to-ralph/SKILL.md` | OpenSpec → prd.json converter skill |
 | `.claude/skills/review-tests/SKILL.md` | Post-run test quality reviewer skill |
