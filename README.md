@@ -1,239 +1,259 @@
-# Ralph
+# Ralph (newmca fork)
 
-![Ralph](ralph.webp)
+An enhanced autonomous AI agent loop for spec-driven development. Runs [Claude Code](https://docs.anthropic.com/en/docs/claude-code) repeatedly until all PRD stories are complete, with Ollama fallback, schema gates, stalemate detection, and test quality enforcement.
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Forked from [snarktank/ralph](https://github.com/snarktank/ralph). Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
-Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
+## What's Different in This Fork
 
-[Read my in-depth article on how I use Ralph](https://x.com/ryancarson/status/2008548371712135632)
+| Feature | snarktank/ralph | newmca/ralph |
+|---------|----------------|--------------|
+| Stop condition | `<promise>COMPLETE</promise>` grep | jq-based prd.json check (reliable) |
+| Rate-limit handling | None | Automatic Ollama fallback (`--fallback`) |
+| Schema safety | None | Schema gate: one schema migration per run |
+| Stalemate detection | None | Exits after N consecutive no-progress iterations |
+| Iteration spacing | Hardcoded 2s sleep | Configurable `--delay` flag |
+| PRD format | `userStories` / `acceptanceCriteria` | `stories` / `acceptance_criteria` + `tags` + `review` |
+| Story tagging | None | AUTO/SCHEMA/PAYMENTS/AUTH/API/UI/TEST/DOCS/CONFIG |
+| High-risk story protection | None | Skips SCHEMA/AUTH/PAYMENTS/SECURITY on fallback model |
+| Test quality rules | None | Enforced in CLAUDE.md (no vacuous/mock-only tests) |
+| OpenSpec integration | None | `/opsx-to-ralph` skill for tasks.md → prd.json |
+| Test review | None | `/review-tests` skill for post-run quality audit |
+| Default tool | Amp | Claude Code |
 
 ## Prerequisites
 
-- One of the following AI coding tools installed and authenticated:
-  - [Amp CLI](https://ampcode.com) (default)
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-- `jq` installed (`brew install jq` on macOS)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
+- `jq` (`brew install jq` on macOS, `apt install jq` on Debian, `dnf install jq` on Fedora)
 - A git repository for your project
+- Optional: [Ollama](https://ollama.com) for local model fallback
 
 ## Setup
-
-### Option 1: Copy to your project
 
 Copy the ralph files into your project:
 
 ```bash
-# From your project root
 mkdir -p scripts/ralph
-cp /path/to/ralph/ralph.sh scripts/ralph/
-
-# Copy the prompt template for your AI tool of choice:
-cp /path/to/ralph/prompt.md scripts/ralph/prompt.md    # For Amp
-# OR
-cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
-
+cp /path/to/ralph/scripts/ralph/ralph.sh scripts/ralph/
+cp /path/to/ralph/scripts/ralph/CLAUDE.md scripts/ralph/
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 2: Install skills globally (Amp)
-
-Copy the skills to your Amp or Claude config for use across all projects:
-
-For AMP
-```bash
-cp -r skills/prd ~/.config/amp/skills/
-cp -r skills/ralph ~/.config/amp/skills/
-```
-
-For Claude Code (manual)
-```bash
-cp -r skills/prd ~/.claude/skills/
-cp -r skills/ralph ~/.claude/skills/
-```
-
-### Option 3: Use as Claude Code Marketplace
-
-Add the Ralph marketplace to Claude Code:
+Install the skills for Claude Code:
 
 ```bash
-/plugin marketplace add snarktank/ralph
+cp -r /path/to/ralph/.claude/skills/opsx-to-ralph ~/.claude/skills/
+cp -r /path/to/ralph/.claude/skills/review-tests ~/.claude/skills/
 ```
-
-Then install the skills:
-
-```bash
-/plugin install ralph-skills@ralph-marketplace
-```
-
-Available skills after installation:
-- `/prd` - Generate Product Requirements Documents
-- `/ralph` - Convert PRDs to prd.json format
-
-Skills are automatically invoked when you ask Claude to:
-- "create a prd", "write prd for", "plan this feature"
-- "convert this prd", "turn into ralph format", "create prd.json"
-
-### Configure Amp auto-handoff (recommended)
-
-Add to `~/.config/amp/settings.json`:
-
-```json
-{
-  "amp.experimental.autoHandoff": { "context": 90 }
-}
-```
-
-This enables automatic handoff when context fills up, allowing Ralph to handle large stories that exceed a single context window.
 
 ## Workflow
 
-### 1. Create a PRD
-
-Use the PRD skill to generate a detailed requirements document:
+### With OpenSpec (recommended)
 
 ```
-Load the prd skill and create a PRD for [your feature description]
+/opsx:propose → tasks.md + proposal.md + design.md → /opsx-to-ralph → prd.json → ralph.sh → /review-tests → done
 ```
 
-Answer the clarifying questions. The skill saves output to `tasks/prd-[feature-name].md`.
+1. **Generate OpenSpec proposal** — creates `tasks.md`, `proposal.md`, `design.md`
+2. **Convert to prd.json** — `/opsx-to-ralph` parses tasks, enriches from design docs, auto-tags, validates, then writes `prd.json`
+3. **Run Ralph** — `./scripts/ralph/ralph.sh` executes stories autonomously
+4. **Review tests** — `/review-tests` audits agent-written tests for quality
 
-### 2. Convert PRD to Ralph format
+### Without OpenSpec
 
-Use the Ralph skill to convert the markdown PRD to JSON:
+1. Write `prd.json` manually or use any PRD-to-JSON conversion
+2. Run `./scripts/ralph/ralph.sh`
 
+## PRD Format
+
+```json
+{
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Add users table",
+      "description": "Create the users table with Drizzle ORM",
+      "acceptance_criteria": [
+        "Users table has id, email, role columns",
+        "Migration runs successfully",
+        "Typecheck passes"
+      ],
+      "passes": false,
+      "priority": 1,
+      "review": "FULL",
+      "tags": ["SCHEMA"]
+    }
+  ]
+}
 ```
-Load the ralph skill and convert tasks/prd-[feature-name].md to prd.json
-```
 
-This creates `prd.json` with user stories structured for autonomous execution.
+**Fields:**
+- `priority` — lower number = runs first. Schema before backend before UI.
+- `passes` — set to `true` by the agent after successful implementation
+- `review` — `FULL` | `TARGETED` | `SKIM` | `MINIMAL` — signals human review depth
+- `tags` — `SCHEMA`, `AUTH`, `PAYMENTS`, `SECURITY`, `API`, `UI`, `TEST`, `DOCS`, `CONFIG`, `SCAFFOLD`
 
-### 3. Run Ralph
+## Usage
 
 ```bash
-# Using Amp (default)
-./scripts/ralph/ralph.sh [max_iterations]
+# Basic run (10 iterations, Claude Code)
+./scripts/ralph/ralph.sh
 
-# Using Claude Code
-./scripts/ralph/ralph.sh --tool claude [max_iterations]
+# Custom iteration count
+./scripts/ralph/ralph.sh 20
+
+# With Ollama fallback on rate limits
+./scripts/ralph/ralph.sh --fallback qwen3-coder:30b
+
+# With delay between iterations (seconds)
+./scripts/ralph/ralph.sh --delay 5
+
+# Custom stalemate threshold
+./scripts/ralph/ralph.sh --max-retries 5
+
+# Full example
+./scripts/ralph/ralph.sh --fallback qwen3-coder:30b --fallback-url http://gpu:11434 --delay 3 --max-retries 5 20
 ```
 
-Default is 10 iterations. Use `--tool amp` or `--tool claude` to select your AI coding tool.
+### Flags
 
-Ralph will:
-1. Create a feature branch (from PRD `branchName`)
-2. Pick the highest priority story where `passes: false`
-3. Implement that single story
-4. Run quality checks (typecheck, tests)
-5. Commit if checks pass
-6. Update `prd.json` to mark story as `passes: true`
-7. Append learnings to `progress.txt`
-8. Repeat until all stories pass or max iterations reached
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tool amp\|claude` | `claude` | AI tool to invoke |
+| `--fallback <model>` | *(none)* | Ollama model for rate-limit fallback |
+| `--fallback-url <url>` | `http://localhost:11434` | Ollama server URL |
+| `--delay <seconds>` | `0` | Sleep between iterations |
+| `--max-retries <n>` | `3` | Consecutive no-progress iterations before abort |
+| `<number>` | `10` | Max iterations (positional) |
 
-## Key Files
+### Exit Codes
 
-| File | Purpose |
+| Code | Meaning |
 |------|---------|
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
-| `prompt.md` | Prompt template for Amp |
-| `CLAUDE.md` | Prompt template for Claude Code |
-| `prd.json` | User stories with `passes` status (the task list) |
-| `prd.json.example` | Example PRD format for reference |
-| `progress.txt` | Append-only learnings for future iterations |
-| `skills/prd/` | Skill for generating PRDs (works with Amp and Claude Code) |
-| `skills/ralph/` | Skill for converting PRDs to JSON (works with Amp and Claude Code) |
-| `.claude-plugin/` | Plugin manifest for Claude Code marketplace discovery |
-| `flowchart/` | Interactive visualization of how Ralph works |
+| `0` | All stories complete |
+| `1` | Max iterations reached |
+| `2` | Stalemate — needs human intervention |
 
-## Flowchart
+## How It Works
 
-[![Ralph Flowchart](ralph-flowchart.png)](https://snarktank.github.io/ralph/)
+Each iteration spawns a **fresh Claude Code instance** with clean context. The only memory between iterations is:
 
-**[View Interactive Flowchart](https://snarktank.github.io/ralph/)** - Click through to see each step with animations.
+- **Git history** — commits from previous iterations
+- **progress.txt** — learnings and codebase patterns
+- **prd.json** — which stories are done
 
-The `flowchart/` directory contains the source code. To run locally:
+The loop:
 
-```bash
-cd flowchart
-npm install
-npm run dev
-```
+1. Check prd.json — if all stories pass, exit 0
+2. Read next story (highest priority, `passes: false`)
+3. **Schema gate** — if story is SCHEMA-tagged and another SCHEMA story already committed this run, skip it
+4. Invoke Claude Code with CLAUDE.md instructions
+5. **Rate-limit check** — if rate-limited and `--fallback` set, retry with Ollama (skip high-risk stories)
+6. Check prd.json again — did a story complete?
+7. **Stalemate check** — if no progress for N iterations, exit 2
+8. Sleep `--delay` seconds, loop
 
-## Critical Concepts
+### Ollama Fallback
 
-### Each Iteration = Fresh Context
+When Claude hits rate limits, Ralph automatically retries with a local Ollama model:
 
-Each iteration spawns a **new AI instance** (Amp or Claude Code) with clean context. The only memory between iterations is:
-- Git history (commits from previous iterations)
-- `progress.txt` (learnings and context)
-- `prd.json` (which stories are done)
+- Environment variables are set **inline per-invocation** (not exported globally), so the next iteration still tries Claude first
+- Stories tagged `SCHEMA`, `AUTH`, `PAYMENTS`, or `SECURITY` are **skipped** in fallback mode — these are too high-risk for a smaller model
+- Which model completed each story is tracked in `progress.txt`
 
-### Small Tasks
+### Schema Gate
 
-Each PRD item should be small enough to complete in one context window. If a task is too big, the LLM runs out of context before finishing and produces poor code.
+Only one SCHEMA-tagged story can be committed per Ralph run. This prevents migration conflicts from concurrent schema changes across iterations.
 
-Right-sized stories:
-- Add a database column and migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
+### Stalemate Detection
 
-Too big (split these):
-- "Build the entire dashboard"
-- "Add authentication"
-- "Refactor the API"
+If the remaining story count doesn't decrease for `--max-retries` consecutive iterations (default 3), Ralph exits with code 2 rather than burning through iterations with no progress.
 
-### AGENTS.md Updates Are Critical
+## Skills
 
-After each iteration, Ralph updates the relevant `AGENTS.md` files with learnings. This is key because AI coding tools automatically read these files, so future iterations (and future human developers) benefit from discovered patterns, gotchas, and conventions.
+### `/opsx-to-ralph` — OpenSpec to PRD Converter
 
-Examples of what to add to AGENTS.md:
-- Patterns discovered ("this codebase uses X for Y")
-- Gotchas ("do not forget to update Z when changing W")
-- Useful context ("the settings panel is in component X")
+Converts an OpenSpec change directory (`tasks.md` + `proposal.md` + `design.md`) into validated `prd.json`.
 
-### Feedback Loops
+**What it does:**
+1. Parses unchecked tasks from `tasks.md`
+2. Enriches descriptions from `proposal.md` and acceptance criteria from `design.md`
+3. Auto-tags stories (SCHEMA/AUTH/PAYMENTS/API/UI/etc.) and assigns review levels
+4. Validates: no vague criteria, size checks, schema gate warnings, dependency ordering
+5. Presents validation summary for user approval before writing
 
-Ralph only works if there are feedback loops:
-- Typecheck catches type errors
-- Tests verify behavior
-- CI must stay green (broken code compounds across iterations)
+**Trigger:** "convert openspec to ralph", "opsx to ralph", "generate prd.json from openspec"
 
-### Browser Verification for UI Stories
+### `/review-tests` — Test Quality Reviewer
 
-Frontend stories must include "Verify in browser using dev-browser skill" in acceptance criteria. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+Read-only analysis of test quality from a git diff. Identifies weak tests that AI agents commonly produce.
 
-### Stop Condition
+**What it checks:**
+- Vacuous tests (would pass with hardcoded return values)
+- Mock-only tests (mocking the module under test)
+- Happy-path-only coverage (no error/edge case tests)
+- Assertion-free test blocks
+- Snapshot-only tests
+- Untested public API surface
+- Uncovered conditional branches
 
-When all stories have `passes: true`, Ralph outputs `<promise>COMPLETE</promise>` and the loop exits.
+**Trigger:** "review tests", "check test quality", "review ralph tests"
+
+## Agent Instructions (CLAUDE.md)
+
+The `scripts/ralph/CLAUDE.md` file is piped to each Claude Code instance. It includes:
+
+- **10-step process** — read PRD, pick story, implement, test, commit, update, log
+- **Test quality rules** — no vacuous tests, no mock-only tests, negative tests required
+- **Schema change rules** — idempotent migrations, no silent drops, verify before/after
+- **Story tag awareness** — how each tag affects implementation approach
+- **Model awareness** — guidance for when running on Ollama fallback
 
 ## Debugging
 
-Check current state:
-
 ```bash
 # See which stories are done
-cat prd.json | jq '.userStories[] | {id, title, passes}'
+jq '.stories[] | {id, title, passes}' prd.json
 
-# See learnings from previous iterations
+# See remaining stories
+jq '[.stories[] | select(.passes == false)] | length' prd.json
+
+# See learnings
 cat progress.txt
 
 # Check git history
 git log --oneline -10
 ```
 
-## Customizing the Prompt
+## Testing
 
-After copying `prompt.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your project, customize it for your project:
-- Add project-specific quality check commands
-- Include codebase conventions
-- Add common gotchas for your stack
+Ralph's shell script has a BATS test suite:
+
+```bash
+bats scripts/ralph/tests/ralph.bats
+```
+
+63 tests covering argument parsing, stop conditions, stalemate detection, archive logic, schema gates, rate-limit detection, Ollama fallback, and edge cases.
 
 ## Archiving
 
-Ralph automatically archives previous runs when you start a new feature (different `branchName`). Archives are saved to `archive/YYYY-MM-DD-feature-name/`.
+Ralph automatically archives previous runs when `prd.json` content changes (detected via sha256 hash). Archives are saved to `archive/YYYY-MM-DD-<story-title>/` with the previous `progress.txt`.
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/ralph/ralph.sh` | Enhanced agent loop with fallback, gates, stalemate detection |
+| `scripts/ralph/CLAUDE.md` | Agent instructions with test quality and schema rules |
+| `scripts/ralph/tests/ralph.bats` | BATS unit tests (63 tests) |
+| `.claude/skills/opsx-to-ralph/SKILL.md` | OpenSpec → prd.json converter skill |
+| `.claude/skills/review-tests/SKILL.md` | Post-run test quality reviewer skill |
+| `ralph.sh` | Original snarktank script (reference) |
+| `CLAUDE.md` | Original snarktank agent instructions (reference) |
 
 ## References
 
 - [Geoffrey Huntley's Ralph article](https://ghuntley.com/ralph/)
-- [Amp documentation](https://ampcode.com/manual)
+- [snarktank/ralph](https://github.com/snarktank/ralph) — upstream
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)
+- [Ollama](https://ollama.com) — local model runtime

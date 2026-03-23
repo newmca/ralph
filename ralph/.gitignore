@@ -5,3 +5,9 @@ progress.txt
 
 # Archive is optional to commit
 # archive/
+
+# OS files
+.DS_Store
+
+#Claude
+.claude/
