@@ -24,9 +24,11 @@ Forked from [snarktank/ralph](https://github.com/snarktank/ralph). Based on [Geo
 ## Prerequisites
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
+- [OpenSpec](https://github.com/newmca/openspec) for spec-driven development (optional, required for `/opsx-to-ralph` skill)
 - `jq` (`brew install jq` on macOS, `apt install jq` on Debian, `dnf install jq` on Fedora)
 - A git repository for your project
-- Optional: [Ollama](https://ollama.com) for local model fallback
+- [Ollama](https://ollama.com) for local model fallback
+- Optional: `bats` (`dnf install bats`) to run bash tests for `ralph.sh`
 
 ## Setup
 
@@ -105,8 +107,8 @@ cp -r /path/to/ralph/.claude/skills/review-tests ~/.claude/skills/
 # With Ollama fallback on rate limits
 ./scripts/ralph/ralph.sh --fallback qwen3-coder:30b
 
-# With delay between iterations (seconds)
-./scripts/ralph/ralph.sh --delay 5
+# With delay between iterations (seconds) 90 seconds is a good starter for Pro subscribers to keep usage limits in check when loopin'
+./scripts/ralph/ralph.sh --delay 90
 
 # Custom stalemate threshold
 ./scripts/ralph/ralph.sh --max-retries 5
