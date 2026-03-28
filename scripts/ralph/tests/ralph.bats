@@ -868,3 +868,135 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"model: claude"* ]]
 }
+
+# =============================================================================
+# STUCK STORY RULE (agent instruction tests)
+# =============================================================================
+
+@test "stuck story rule: CLAUDE.md template contains stuck story instruction text" {
+  # Verify the COPY_INTO_YOUR_PROJECT_CLAUDE.md template includes the stuck story rule
+  grep -q "Stuck Story Rule" "$BATS_TEST_DIRNAME/../COPY_INTO_YOUR_PROJECT_CLAUDE.md"
+  grep -q "failed 3+ attempts" "$BATS_TEST_DIRNAME/../COPY_INTO_YOUR_PROJECT_CLAUDE.md"
+  grep -q "BLOCKED" "$BATS_TEST_DIRNAME/../COPY_INTO_YOUR_PROJECT_CLAUDE.md"
+  grep -q "ALL REMAINING STORIES BLOCKED" "$BATS_TEST_DIRNAME/../COPY_INTO_YOUR_PROJECT_CLAUDE.md"
+  grep -q "needs human intervention" "$BATS_TEST_DIRNAME/../COPY_INTO_YOUR_PROJECT_CLAUDE.md"
+}
+
+@test "stuck story rule: story failed 3 times gets BLOCKED entry from agent" {
+  # Simulate what the agent would see: a progress.txt with 3 failures for US-001
+  # and verify the expected BLOCKED line format is consistent with the instructions
+  create_prd 2
+  cat > "$TEST_DIR/progress.txt" <<'PROGRESS'
+# Ralph Progress Log
+
+## 2026-03-01 - US-001
+- Attempted implementation
+- Story US-001: FAILED - typecheck errors
+---
+
+## 2026-03-01 - US-001
+- Second attempt
+- Story US-001: FAILED - lint errors
+---
+
+## 2026-03-02 - US-001
+- Third attempt
+- Story US-001: FAILED - test failures
+---
+PROGRESS
+
+  # Count failure markers for US-001 in progress.txt (this is what the agent does per the instruction)
+  fail_count=$(grep -c "Story US-001: FAILED\|US-001 failed\|US-001.*FAILED" "$TEST_DIR/progress.txt")
+  [ "$fail_count" -ge 3 ]
+
+  # Simulate the agent appending the BLOCKED line (as instructed by the stuck story rule)
+  echo "BLOCKED: Story US-001 failed 3+ attempts — needs human intervention" >> "$TEST_DIR/progress.txt"
+
+  # Verify the BLOCKED entry is present in progress.txt
+  grep -q "BLOCKED: Story US-001 failed 3+ attempts" "$TEST_DIR/progress.txt"
+  grep -q "needs human intervention" "$TEST_DIR/progress.txt"
+}
+
+# =============================================================================
+# PRD.JSON CORRUPTION PROTECTION
+# =============================================================================
+
+@test "corruption: corrupted prd.json triggers git checkout recovery" {
+  # Create a valid prd.json first, then corrupt it
+  create_prd 1
+  # Save a valid copy that git checkout will restore
+  cp "$TEST_DIR/prd.json" "$TEST_DIR/prd.json.valid"
+  # Corrupt the prd.json
+  echo "NOT VALID JSON {{{" > "$TEST_DIR/prd.json"
+
+  # Mock git to restore the valid prd.json on checkout
+  cat > "$MOCK_BIN/git" <<MOCK
+#!/bin/bash
+if [[ "\$*" == *"checkout -- "* ]]; then
+  cp "$TEST_DIR/prd.json.valid" "$TEST_DIR/prd.json"
+  exit 0
+elif [[ "\$*" == *"rev-parse --abbrev-ref HEAD"* ]]; then
+  echo "main"
+else
+  /usr/bin/git "\$@"
+fi
+MOCK
+  chmod +x "$MOCK_BIN/git"
+
+  run_ralph --max-retries 1 1
+  [[ "$output" == *"ERROR: prd.json is corrupted. Restoring from last git commit."* ]]
+  # Should NOT exit 3 since restoration succeeds
+  [ "$status" -ne 3 ]
+}
+
+@test "corruption: exit code 3 when git checkout also produces invalid JSON" {
+  # Corrupt the prd.json
+  echo "NOT VALID JSON {{{" > "$TEST_DIR/prd.json"
+
+  # Mock git checkout to "restore" another corrupted file
+  cat > "$MOCK_BIN/git" <<MOCK
+#!/bin/bash
+if [[ "\$*" == *"checkout -- "* ]]; then
+  echo "ALSO NOT VALID JSON }}}" > "$TEST_DIR/prd.json"
+  exit 0
+elif [[ "\$*" == *"rev-parse --abbrev-ref HEAD"* ]]; then
+  echo "main"
+else
+  /usr/bin/git "\$@"
+fi
+MOCK
+  chmod +x "$MOCK_BIN/git"
+
+  run_ralph 1
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"ERROR: prd.json is corrupted. Restoring from last git commit."* ]]
+  [[ "$output" == *"Restored prd.json is also corrupted. Unrecoverable."* ]]
+}
+
+@test "corruption: valid prd.json after recovery allows iteration to continue" {
+  # Create a valid prd.json, save it, then corrupt the original
+  create_prd 1
+  cp "$TEST_DIR/prd.json" "$TEST_DIR/prd.json.valid"
+  echo "CORRUPT!!!" > "$TEST_DIR/prd.json"
+
+  # Mock git to restore valid prd.json
+  cat > "$MOCK_BIN/git" <<MOCK
+#!/bin/bash
+if [[ "\$*" == *"checkout -- "* ]]; then
+  cp "$TEST_DIR/prd.json.valid" "$TEST_DIR/prd.json"
+  exit 0
+elif [[ "\$*" == *"rev-parse --abbrev-ref HEAD"* ]]; then
+  echo "main"
+else
+  /usr/bin/git "\$@"
+fi
+MOCK
+  chmod +x "$MOCK_BIN/git"
+
+  run_ralph --max-retries 1 1
+  # Should recover and continue to show stories remaining
+  [[ "$output" == *"ERROR: prd.json is corrupted. Restoring from last git commit."* ]]
+  [[ "$output" == *"Stories remaining: 1"* ]]
+  # Should not exit 3
+  [ "$status" -ne 3 ]
+}

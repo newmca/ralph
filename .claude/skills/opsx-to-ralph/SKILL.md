@@ -8,11 +8,17 @@ user-invocable: true
 
 Converts OpenSpec change proposals into validated `prd.json` for Ralph autonomous execution. Reads `tasks.md`, `proposal.md`, and `design.md` from an OpenSpec change directory and produces a structured, validated PRD.
 
+This skill works with output from **either** OpenSpec profile:
+- **Basic profile:** `/opsx:propose` (generates all planning docs in one step)
+- **Expanded profile:** `/opsx:new` (creates the change directory) then `/opsx:ff` (fast-forward to generate all docs)
+
+Both profiles produce the same file artifacts — this skill reads those files, not the commands.
+
 ---
 
 ## The Job
 
-Take an OpenSpec change directory containing `tasks.md`, `proposal.md`, and `design.md` and convert it into a validated `prd.json` that Ralph can execute autonomously. This is a 4-phase pipeline: Parse, Enrich, Tag, Validate.
+Take an OpenSpec change directory containing `tasks.md`, `proposal.md`, and `design.md` and convert it into a validated `prd.json` that Ralph can execute autonomously. This is a 5-phase pipeline: Validate Input, Parse, Enrich, Tag, Validate Output.
 
 ---
 
@@ -25,6 +31,23 @@ That directory contains:
 - **`proposal.md`** (required) -- Motivation and rationale for the change
 - **`design.md`** (required) -- Technical constraints, API contracts, expected behavior
 - **`specs/`** (optional) -- Additional specification files for context
+
+---
+
+## Phase 0: Validate Input
+
+Before proceeding, check that the required files exist in the provided directory.
+
+1. Verify `tasks.md` exists
+2. Verify `proposal.md` exists
+
+If either file is missing, **stop** and inform the user:
+
+> "Required OpenSpec files not found in `<directory>`. Run one of the following to generate them first:
+> - **Basic profile:** `/opsx:propose`
+> - **Expanded profile:** `/opsx:new` then `/opsx:ff`"
+
+Do NOT proceed with partial input. `design.md` is also required but may be generated later in some workflows — if only `design.md` is missing, warn the user but allow them to proceed if they confirm.
 
 ---
 

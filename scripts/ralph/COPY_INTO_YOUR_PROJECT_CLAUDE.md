@@ -8,12 +8,18 @@ You are an autonomous coding agent working on a software project.
 2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
 3. Check you're on the correct branch for this project. Branch info comes from project configuration (e.g., git branch conventions), not from prd.json. If needed, check out or create the appropriate branch from main.
 4. Pick the **highest priority** story from the `stories` array where `passes: false`
-5. Implement that single user story
-6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
-7. Update CLAUDE.md files if you discover reusable patterns (see below)
-8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
-9. Update the PRD to set `passes: true` for the completed story in the `stories` array
-10. Append your progress to `progress.txt`
+5. **Stuck Story Rule** — before implementing, check if this story is stuck:
+   - Scan `progress.txt` for previous attempts on the same story ID
+   - If the story has been attempted and failed **3 or more times** (look for patterns like `"Story [ID]: FAILED"`, `"[ID] failed"`, or similar failure markers in progress.txt), **skip it**
+   - When skipping, append `BLOCKED: Story [ID] failed 3+ attempts — needs human intervention` to `progress.txt`
+   - Pick the next highest-priority incomplete story instead
+   - If **ALL** remaining incomplete stories are blocked, append `ALL REMAINING STORIES BLOCKED` to `progress.txt` and stop
+6. Implement that single user story
+7. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
+8. Update CLAUDE.md files if you discover reusable patterns (see below)
+9. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
+10. Update the PRD to set `passes: true` for the completed story in the `stories` array
+11. Append your progress to `progress.txt`
 
 ## Progress Report Format
 
@@ -154,3 +160,4 @@ If there are still stories with `passes: false`, end your response normally (ano
 - Commit frequently
 - Keep CI green
 - Read the Codebase Patterns section in progress.txt before starting
+- Always commit prd.json changes in the same git commit as the code changes they relate to. Never write prd.json without committing it. This ensures git checkout can always recover a valid prd.json.

@@ -168,6 +168,24 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     exit 0
   fi
 
+  # --- prd.json corruption protection ---
+  if ! jq empty "$PRD_FILE" 2>/dev/null; then
+    echo "ERROR: prd.json is corrupted. Restoring from last git commit."
+    git checkout -- "$PRD_FILE" 2>/dev/null
+    if ! jq empty "$PRD_FILE" 2>/dev/null; then
+      echo "ERROR: Restored prd.json is also corrupted. Unrecoverable."
+      exit 3
+    fi
+    # Re-check remaining after restoration
+    REMAINING=$(jq '[.stories[] | select(.passes == false)] | length' "$PRD_FILE" 2>/dev/null || echo "999")
+    if [ "$REMAINING" -eq 0 ]; then
+      echo ""
+      echo "Ralph completed all tasks! (all stories pass)"
+      echo "Completed at iteration $i of $MAX_ITERATIONS"
+      exit 0
+    fi
+  fi
+
   echo "  Stories remaining: $REMAINING"
 
   # --- Schema gate enforcement ---
